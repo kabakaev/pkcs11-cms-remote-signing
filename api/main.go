@@ -74,6 +74,7 @@ func main() {
 	
 	// EC endpoints
 	mux.HandleFunc("/sign_ec", handleSignEC)
+	mux.HandleFunc("/sign_ec_der", handleSignECDER)
 	mux.HandleFunc("/cert_ec", handleCertificateEC)
 	
 	// RSA endpoints
@@ -115,7 +116,49 @@ func authMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// convertECDSADERToRaw converts an ECDSA signature from DER/ASN.1 format to raw R||S format.
+//
+// OpenSSL's `pkeyutl -sign` returns ECDSA signatures in DER-encoded ASN.1 format:
+//
+//	SEQUENCE { INTEGER r, INTEGER s }
+//
+// where r and s are variable-length (e.g., 47-49 bytes each for P-384, depending on leading zeros).
+//
+// PKCS#11 (and thus the pkcs11-provider) expects ECDSA signatures in raw format:
+// fixed-size r and s values concatenated together, each padded to the curve's order size.
+// For P-384 (48-byte order): r (48 bytes) || s (48 bytes) = 96 bytes total.
+//
+// Different cloud KMS services return different formats:
+//   - AWS KMS, Google Cloud KMS, HashiCorp Vault: DER/ASN.1 format
+//   - Azure Key Vault: Raw R||S format
+//
+// This function performs the DER-to-raw conversion when needed.
+func convertECDSADERToRaw(derSig []byte, curveOrderByteSize int) ([]byte, error) {
+	rInt, sInt, err := parseECDSASignature(derSig)
+	if err != nil {
+		return nil, err
+	}
+
+	rBytes := rInt.Bytes()
+	sBytes := sInt.Bytes()
+
+	// Pad to curve order size (right-align, left-pad with zeros)
+	signature := make([]byte, 2*curveOrderByteSize)
+	copy(signature[curveOrderByteSize-len(rBytes):curveOrderByteSize], rBytes)
+	copy(signature[2*curveOrderByteSize-len(sBytes):], sBytes)
+
+	return signature, nil
+}
+
 func handleSignEC(w http.ResponseWriter, r *http.Request) {
+	signEC(w, r, true) // Convert DER to raw
+}
+
+func handleSignECDER(w http.ResponseWriter, r *http.Request) {
+	signEC(w, r, false) // Return DER as-is
+}
+
+func signEC(w http.ResponseWriter, r *http.Request, convertToRaw bool) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -151,7 +194,7 @@ func handleSignEC(w http.ResponseWriter, r *http.Request) {
 	}
 	tmpFile.Close()
 
-	// Sign using openssl pkeyutl
+	// Sign using openssl pkeyutl (returns DER format)
 	cmd := exec.Command("openssl", "pkeyutl", "-sign", "-inkey", "ec_private_key.pem", "-in", tmpFile.Name(), "-pkeyopt", "digest:sha512")
 	output, err := cmd.Output()
 	if err != nil {
@@ -163,32 +206,18 @@ func handleSignEC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// OpenSSL's `pkeyutl -sign` returns ECDSA signatures in DER-encoded ASN.1 format:
-	//
-	//	SEQUENCE { INTEGER r, INTEGER s }
-	//
-	// where r and s are variable-length (e.g., 47-49 bytes each for P-384, depending on leading zeros).
-	//
-	// PKCS#11 (and thus the pkcs11-provider) expects ECDSA signatures in raw format:
-	// fixed-size r and s values concatenated together, each padded to the curve's order size.
-	// For P-384 (48-byte order): r (48 bytes) || s (48 bytes) = 96 bytes total.
-	rInt, sInt, err := parseECDSASignature(output)
-	if err != nil {
-		log.Printf("Failed to parse DER signature: %v", err)
-		http.Error(w, "Failed to parse signature", http.StatusInternalServerError)
-		return
+	var signature []byte
+	if convertToRaw {
+		curveOrderByteSize := (ecPrivateKey.Curve.Params().N.BitLen() + 7) / 8
+		signature, err = convertECDSADERToRaw(output, curveOrderByteSize)
+		if err != nil {
+			log.Printf("Failed to convert DER signature: %v", err)
+			http.Error(w, "Failed to parse signature", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		signature = output
 	}
-
-	params := ecPrivateKey.Curve.Params()
-	curveOrderByteSize := (params.N.BitLen() + 7) / 8
-
-	rBytes := rInt.Bytes()
-	sBytes := sInt.Bytes()
-
-	// Pad to curve order size
-	signature := make([]byte, 2*curveOrderByteSize)
-	copy(signature[curveOrderByteSize-len(rBytes):curveOrderByteSize], rBytes)
-	copy(signature[2*curveOrderByteSize-len(sBytes):], sBytes)
 
 	resp := SignResponse{
 		Signature: base64.StdEncoding.EncodeToString(signature),

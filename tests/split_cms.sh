@@ -14,14 +14,32 @@ cp -r "$REPO_ROOT/api/"* "$TEST_DIR/api/"
 
 # Function to run CMS sign and verify test
 test_cms_sign_verify() {
-    local key_type="$1"  # "ec" or "rsa"
-    local cert_file="$2"
+    local key_type="$1"  # "ec", "ec_der", or "rsa"
+    local cert_endpoint="$2"
 
     echo -e "${YELLOW}=== Testing ${key_type^^} key ===${NC}"
 
     # Configure shim for this key type
-    export PKCS11_SHIM_API_CERT_GET_PATH="/cert_${key_type}"
-    export PKCS11_SHIM_API_SIGN_PATH="/sign_${key_type}"
+    case "$key_type" in
+        "ec")
+            export PKCS11_SHIM_API_CERT_GET_PATH="$cert_endpoint"
+            export PKCS11_SHIM_API_SIGN_PATH="/sign_ec"
+            ;;
+        "ec_der")
+            export PKCS11_SHIM_API_CERT_GET_PATH="$cert_endpoint"
+            export PKCS11_SHIM_API_SIGN_PATH="/sign_ec_der"
+            ;;
+        "rsa")
+            export PKCS11_SHIM_API_CERT_GET_PATH="$cert_endpoint"
+            export PKCS11_SHIM_API_SIGN_PATH="/sign_rsa"
+            ;;
+    esac
+
+    # Fetch certificate from API and convert to PEM
+    local cert_file="$TEST_DIR/cert_${key_type}.pem"
+    curl -s -H "X-Auth-Token:secret123" "http://localhost:27180${cert_endpoint}" | \
+        jq -r '.certificate' | base64 -d | \
+        openssl x509 -inform DER -out "$cert_file"
 
     local sig_file="$TEST_DIR/data.signed.${key_type}"
 
@@ -46,7 +64,7 @@ test_cms_sign_verify() {
     echo
 
     # Cleanup signature file
-    rm -f "$sig_file"
+    rm -f "$sig_file" "$cert_file"
 }
 
 # Generate EC certificate
@@ -91,8 +109,9 @@ export PKCS11_SHIM_AUTH="X-Auth-Token:secret123"
 export PKCS11_SHIM_API_SIGN_REQUEST_FORMAT='{"hash": "%s"}'
 export PKCS11_SHIM_DEBUG="file:/dev/stderr"
 
-# Run tests for both key types
-test_cms_sign_verify "ec" "$TEST_DIR/api/ec_cert.pem"
-test_cms_sign_verify "rsa" "$TEST_DIR/api/rsa_cert.pem"
+# Run tests for all key types
+test_cms_sign_verify "ec" "/cert_ec"
+test_cms_sign_verify "ec_der" "/cert_ec" 
+test_cms_sign_verify "rsa" "/cert_rsa"
 
 echo -e "${GREEN}All tests passed!${NC}"

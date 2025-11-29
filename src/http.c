@@ -20,35 +20,41 @@
  * default provider during curl operations, then restore them after.
  */
 
-static void save_and_override_properties(void) {
+static void save_and_override_properties(void)
+{
     /* Override the global default properties to use only the default provider.
      * This affects the NULL (default) library context.
      * Note: There's no API to get the current default properties in OpenSSL 3.0,
      * so we assume they weren't set. For our use case (openssl cms -provider pkcs11),
      * the properties are set per-provider via command line, not globally. */
     if (!EVP_set_default_properties(NULL, "provider=default")) {
-        shim_log(SHIM_LOG_ERROR, "Failed to set default properties to provider=default");
+        shim_log(SHIM_LOG_ERROR,
+                 "Failed to set default properties to provider=default");
     }
 }
 
-static void restore_properties(void) {
+static void restore_properties(void)
+{
     /* Restore to no property query (accept any provider) */
     EVP_set_default_properties(NULL, NULL);
 }
 
-CK_RV shim_http_global_init(void) {
+CK_RV shim_http_global_init(void)
+{
     if (curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) {
         return CKR_GENERAL_ERROR;
     }
     return CKR_OK;
 }
 
-CK_RV shim_http_global_cleanup(void) {
+CK_RV shim_http_global_cleanup(void)
+{
     curl_global_cleanup();
     return CKR_OK;
 }
 
-static int init_string(struct string *s) {
+static int init_string(struct string *s)
+{
     s->len = 0;
     s->ptr = OPENSSL_malloc(s->len + 1);
     if (s->ptr == NULL) {
@@ -59,7 +65,8 @@ static int init_string(struct string *s) {
     return 0;
 }
 
-static size_t writefunc(void *ptr, size_t size, size_t nmemb, struct string *s) {
+static size_t writefunc(void *ptr, size_t size, size_t nmemb, struct string *s)
+{
     size_t new_len = s->len + size * nmemb;
     char *new_ptr = OPENSSL_realloc(s->ptr, new_len + 1);
     if (new_ptr == NULL) {
@@ -74,7 +81,8 @@ static size_t writefunc(void *ptr, size_t size, size_t nmemb, struct string *s) 
     return size * nmemb;
 }
 
-static struct curl_slist *get_auth_headers(struct curl_slist *headers) {
+static struct curl_slist *get_auth_headers(struct curl_slist *headers)
+{
     const char *auth = getenv("PKCS11_SHIM_AUTH");
     if (auth) {
         return curl_slist_append(headers, auth);
@@ -82,7 +90,8 @@ static struct curl_slist *get_auth_headers(struct curl_slist *headers) {
     return headers;
 }
 
-char *get_shim_url(const char *endpoint) {
+char *get_shim_url(const char *endpoint)
+{
     const char *base_url = getenv("PKCS11_SHIM_URL");
     const char *default_url = "http://localhost:27180";
     if (!base_url) base_url = default_url;
@@ -95,7 +104,8 @@ char *get_shim_url(const char *endpoint) {
     return url;
 }
 
-static long get_timeout(void) {
+static long get_timeout(void)
+{
     const char *timeout_env = getenv("PKCS11_SHIM_TIMEOUT");
     if (timeout_env) {
         return strtol(timeout_env, NULL, 10);
@@ -103,17 +113,20 @@ static long get_timeout(void) {
     return 10; /* Default 10 seconds */
 }
 
-static void configure_ssl(CURL *curl) {
+static void configure_ssl(CURL *curl)
+{
     const char *verify = getenv("PKCS11_SHIM_SSL_VERIFY");
     const char *capath = getenv("PKCS11_SHIM_CAPATH");
     const char *verbose = getenv("PKCS11_SHIM_CURL_VERBOSE");
 
     /* Enable verbose output for debugging */
-    if (verbose && (strcmp(verbose, "1") == 0 || strcasecmp(verbose, "true") == 0)) {
+    if (verbose
+        && (strcmp(verbose, "1") == 0 || strcasecmp(verbose, "true") == 0)) {
         curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
     }
 
-    if (verify && (strcmp(verify, "0") == 0 || strcasecmp(verify, "false") == 0)) {
+    if (verify
+        && (strcmp(verify, "0") == 0 || strcasecmp(verify, "false") == 0)) {
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
     } else {
@@ -126,7 +139,8 @@ static void configure_ssl(CURL *curl) {
     }
 }
 
-CK_RV shim_http_get(const char *url, struct string *s) {
+CK_RV shim_http_get(const char *url, struct string *s)
+{
     CURL *curl = curl_easy_init();
     if (!curl) return CKR_GENERAL_ERROR;
 
@@ -158,7 +172,8 @@ CK_RV shim_http_get(const char *url, struct string *s) {
     curl_easy_cleanup(curl);
 
     if (res != CURLE_OK) {
-        shim_log(SHIM_LOG_ERROR, "curl_easy_perform() failed: %s", curl_easy_strerror(res));
+        shim_log(SHIM_LOG_ERROR, "curl_easy_perform() failed: %s",
+                 curl_easy_strerror(res));
         OPENSSL_free(s->ptr);
         return CKR_FUNCTION_FAILED;
     }
@@ -173,7 +188,8 @@ CK_RV shim_http_get(const char *url, struct string *s) {
     return CKR_OK;
 }
 
-CK_RV shim_http_post(const char *url, const char *data, struct string *s) {
+CK_RV shim_http_post(const char *url, const char *data, struct string *s)
+{
     CURL *curl = curl_easy_init();
     if (!curl) return CKR_GENERAL_ERROR;
 
@@ -206,7 +222,8 @@ CK_RV shim_http_post(const char *url, const char *data, struct string *s) {
     curl_easy_cleanup(curl);
 
     if (res != CURLE_OK) {
-        shim_log(SHIM_LOG_ERROR, "curl_easy_perform() failed: %s", curl_easy_strerror(res));
+        shim_log(SHIM_LOG_ERROR, "curl_easy_perform() failed: %s",
+                 curl_easy_strerror(res));
         OPENSSL_free(s->ptr);
         return CKR_FUNCTION_FAILED;
     }
