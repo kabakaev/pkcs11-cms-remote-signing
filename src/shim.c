@@ -207,7 +207,9 @@ static CK_RV ensure_certificate_info(void)
     pthread_mutex_unlock(&cache_mutex);
 
     struct string s;
-    char *url = get_shim_url("/certificate");
+    const char *cert_path = getenv("PKCS11_SHIM_GET_CERT_PATH");
+    if (!cert_path) cert_path = "/certificate";
+    char *url = get_shim_url(cert_path);
     if (!url) return CKR_HOST_MEMORY;
     CK_RV rv = shim_http_get(url, &s);
     OPENSSL_free(url);
@@ -243,31 +245,32 @@ static CK_RV ensure_certificate_info(void)
 
     /* Extract EC Params and Point */
     if (EVP_PKEY_base_id(pkey) == EVP_PKEY_EC) {
-        EC_KEY *ec = EVP_PKEY_get1_EC_KEY(pkey);
-        if (ec) {
-            const EC_GROUP *group = EC_KEY_get0_group(ec);
-            int nid = EC_GROUP_get_curve_name(group);
-            ASN1_OBJECT *obj = OBJ_nid2obj(nid);
-            params_len = i2d_ASN1_OBJECT(obj, &params);
+        char group_name[128];
+        if (EVP_PKEY_get_utf8_string_param(pkey, OSSL_PKEY_PARAM_GROUP_NAME,
+                                           group_name, sizeof(group_name),
+                                           NULL)) {
+            int nid = OBJ_sn2nid(group_name);
+            if (nid == NID_undef) nid = OBJ_ln2nid(group_name);
+            if (nid != NID_undef) {
+                ASN1_OBJECT *obj = OBJ_nid2obj(nid);
+                params_len = i2d_ASN1_OBJECT(obj, &params);
+            }
+        }
 
-            const EC_POINT *point = EC_KEY_get0_public_key(ec);
-            unsigned char *point_buf = NULL;
-            size_t point_len = EC_POINT_point2oct(
-                group, point, POINT_CONVERSION_UNCOMPRESSED, NULL, 0, NULL);
-            if (point_len > 0) {
-                point_buf = OPENSSL_malloc(point_len);
-                if (EC_POINT_point2oct(group, point,
-                                       POINT_CONVERSION_UNCOMPRESSED, point_buf,
-                                       point_len, NULL)
-                    == point_len) {
+        size_t len = 0;
+        if (EVP_PKEY_get_octet_string_param(pkey, OSSL_PKEY_PARAM_PUB_KEY, NULL,
+                                            0, &len)) {
+            unsigned char *point_buf = OPENSSL_malloc(len);
+            if (point_buf) {
+                if (EVP_PKEY_get_octet_string_param(
+                        pkey, OSSL_PKEY_PARAM_PUB_KEY, point_buf, len, &len)) {
                     ASN1_OCTET_STRING *os = ASN1_OCTET_STRING_new();
-                    ASN1_OCTET_STRING_set(os, point_buf, point_len);
+                    ASN1_OCTET_STRING_set(os, point_buf, len);
                     point_der_len = i2d_ASN1_OCTET_STRING(os, &point_der);
                     ASN1_OCTET_STRING_free(os);
                 }
                 OPENSSL_free(point_buf);
             }
-            EC_KEY_free(ec);
         }
     }
     EVP_PKEY_free(pkey);

@@ -128,7 +128,7 @@ func handleSign(w http.ResponseWriter, r *http.Request) {
 	tmpFile.Close()
 
 	// Sign using openssl pkeyutl
-	cmd := exec.Command("openssl", "pkeyutl", "-sign", "-inkey", "private_key.pem", "-in", tmpFile.Name())
+	cmd := exec.Command("openssl", "pkeyutl", "-sign", "-inkey", "private_key.pem", "-in", tmpFile.Name(), "-pkeyopt", "digest:sha512")
 	output, err := cmd.Output()
 	if err != nil {
 		log.Printf("openssl error: %v", err)

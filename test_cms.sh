@@ -63,7 +63,7 @@ export PKCS11_SHIM_DEBUG="file:/dev/stderr"
 # slot-id=1, object-label=Shim Key
 KEY_URI="pkcs11:token=Shim%20Token;object=Shim%20Key;type=private"
 
-openssl cms -sign -binary -in data.txt -out data.signed -outform DER -provider-path $(pwd)/build/src -provider pkcs11 -provider default -inkey "$KEY_URI" -signer cert.pem
+openssl cms -sign -binary -md sha512 -in data.txt -out data.signed -outform DER -provider-path $(pwd)/build/src -provider pkcs11 -provider default -inkey "$KEY_URI" -signer cert.pem
 
 # Verify
 echo "Verifying..."
