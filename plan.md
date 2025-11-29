@@ -14,7 +14,7 @@ The goal is to enable `openssl cms -sign` to sign a large binary file using a re
 
 #### [NEW] [api/main.go](./api/main.go)
 
-- Implement a simple HTTP server listening on `127.0.0.1:42180`.
+- Implement a simple HTTP server listening on `127.0.0.1:27180`.
 - Endpoint: `POST /sign`
 - Request: JSON `{ "data": "base64...", "mechanism": "ECDSA" }`
 - Response: JSON `{ "signature": "base64..." }`

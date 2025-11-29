@@ -13,7 +13,49 @@ The test script is in [test_cms.sh](test_cms.sh).
 
 The implementation plan is in [plan.md](plan.md).
 
-The original pkcs11-provider README.md:
+## Configuration environment variables
+
+The PKCS#11 shim is configured via environment variables:
+
+### Required
+
+| Variable                        | Description                                        | Example                               |
+| ------------------------------- | -------------------------------------------------- | ------------------------------------- |
+| `PKCS11_SHIM_URL`               | Base URL of the signing API                        | `https://code-signing.example.com/v1` |
+| `PKCS11_SHIM_API_CERT_GET_PATH` | Path to GET certificate endpoint (appended to URL) | `/certificate?alias=mykey`            |
+| `PKCS11_SHIM_API_SIGN_PATH`     | Path to POST sign endpoint (appended to URL)       | `/sign/digest`                        |
+
+### Optional
+
+| Variable                              | Description                                                                    | Default                                |
+| ------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------- |
+| `PKCS11_SHIM_AUTH`                    | Authentication header in `Name:Value` format                                   | _(none)_                               |
+| `PKCS11_SHIM_API_CERT_JSON_FIELD`     | JSON field name containing the PEM certificate                                 | `certificate`                          |
+| `PKCS11_SHIM_API_SIGN_REQUEST_FORMAT` | JSON payload format for sign request (`%s` = base64 data)                      | `{"data": "%s", "mechanism": "ECDSA"}` |
+| `PKCS11_SHIM_API_SIGN_RETURN_TYPE`    | Response type: `json` (expects `{"signature":"..."}`) or `base64` (raw base64) | `json`                                 |
+| `PKCS11_SHIM_SSL_VERIFY`              | Enable/disable SSL certificate verification (`true`/`false`)                   | `true`                                 |
+| `PKCS11_SHIM_CAPATH`                  | Path to CA certificate bundle for SSL verification                             | _(system default)_                     |
+| `PKCS11_SHIM_TIMEOUT`                 | HTTP request timeout in seconds                                                | `30`                                   |
+| `PKCS11_SHIM_CURL_VERBOSE`            | Enable curl verbose output for debugging (`1` to enable)                       | _(disabled)_                           |
+| `PKCS11_SHIM_DEBUG`                   | Debug output destination (e.g., `file:/dev/stderr`)                            | _(disabled)_                           |
+
+### Example
+
+```bash
+export PKCS11_SHIM_URL="https://signing-service.example.com"
+export PKCS11_SHIM_AUTH="Authorization:Bearer your-api-key-here"
+export PKCS11_SHIM_API_CERT_GET_PATH="/certificate?user=test1"
+export PKCS11_SHIM_API_CERT_JSON_FIELD="cert_pem"
+export PKCS11_SHIM_API_SIGN_PATH="/sign"
+export PKCS11_SHIM_API_SIGN_REQUEST_FORMAT='{"hash": "%s", "alias": "mykey"}'
+export PKCS11_SHIM_API_SIGN_RETURN_TYPE="base64"
+export PKCS11_SHIM_SSL_VERIFY="true"
+```
+
+
+## The original README.md
+
+The original pkcs11-provider README.md follows.
 
 This is an OpenSSL 3.x provider to access Hardware and Software Tokens using
 the PKCS#11 Cryptographic Token Interface. Access to tokens depends
