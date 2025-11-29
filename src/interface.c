@@ -10,81 +10,6 @@
  * at runtime by emulating or returning the proper error if a 3.0
  * only function is used on a 2.40 token. */
 
-struct p11prov_module_ctx {
-    P11PROV_CTX *provctx;
-
-    char *path;
-    char *init_args;
-
-    void *dlhandle;
-    P11PROV_INTERFACE *interface;
-
-    CK_INFO ck_info;
-
-    pthread_mutex_t lock;
-    bool initialized;
-    bool reinit;
-};
-
-/* This structure is effectively equivalent to CK_FUNCTION_LIST_3_0
- * however we list only the symbols we are actually using in the
- * code plus flags */
-struct p11prov_interface {
-    CK_VERSION version;
-    CK_FLAGS flags;
-    CK_C_Initialize Initialize;
-    CK_C_Finalize Finalize;
-    CK_C_GetInfo GetInfo;
-    CK_C_GetFunctionList GetFunctionList;
-    CK_C_GetSlotList GetSlotList;
-    CK_C_GetSlotInfo GetSlotInfo;
-    CK_C_GetTokenInfo GetTokenInfo;
-    CK_C_GetMechanismList GetMechanismList;
-    CK_C_GetMechanismInfo GetMechanismInfo;
-    CK_C_OpenSession OpenSession;
-    CK_C_CloseSession CloseSession;
-    CK_C_GetSessionInfo GetSessionInfo;
-    CK_C_GetOperationState GetOperationState;
-    CK_C_SetOperationState SetOperationState;
-    CK_C_Login Login;
-    CK_C_CreateObject CreateObject;
-    CK_C_CopyObject CopyObject;
-    CK_C_DestroyObject DestroyObject;
-    CK_C_GetAttributeValue GetAttributeValue;
-    CK_C_SetAttributeValue SetAttributeValue;
-    CK_C_FindObjectsInit FindObjectsInit;
-    CK_C_FindObjects FindObjects;
-    CK_C_FindObjectsFinal FindObjectsFinal;
-    CK_C_EncryptInit EncryptInit;
-    CK_C_Encrypt Encrypt;
-    CK_C_EncryptUpdate EncryptUpdate;
-    CK_C_EncryptFinal EncryptFinal;
-    CK_C_DecryptInit DecryptInit;
-    CK_C_Decrypt Decrypt;
-    CK_C_DecryptUpdate DecryptUpdate;
-    CK_C_DecryptFinal DecryptFinal;
-    CK_C_DigestInit DigestInit;
-    CK_C_DigestUpdate DigestUpdate;
-    CK_C_DigestFinal DigestFinal;
-    CK_C_SignInit SignInit;
-    CK_C_Sign Sign;
-    CK_C_SignUpdate SignUpdate;
-    CK_C_SignFinal SignFinal;
-    CK_C_VerifyInit VerifyInit;
-    CK_C_Verify Verify;
-    CK_C_VerifyUpdate VerifyUpdate;
-    CK_C_VerifyFinal VerifyFinal;
-    CK_C_GenerateKey GenerateKey;
-    CK_C_GenerateKeyPair GenerateKeyPair;
-    CK_C_DeriveKey DeriveKey;
-    CK_C_SeedRandom SeedRandom;
-    CK_C_GenerateRandom GenerateRandom;
-    CK_C_GetInterface GetInterface;
-    CK_C_SessionCancel SessionCancel;
-    CK_C_EncapsulateKey EncapsulateKey;
-    CK_C_DecapsulateKey DecapsulateKey;
-};
-
 #include "interface.gen.c"
 
 static CK_RV p11prov_NO_GetInterface(CK_UTF8CHAR_PTR pInterfaceName,
@@ -294,8 +219,27 @@ CK_RV p11prov_module_init(P11PROV_MODULE *mctx)
     CK_C_INITIALIZE_ARGS args = { 0 };
     CK_RV ret;
 
+#include "shim.h"
+
     if (!mctx) {
         return CKR_GENERAL_ERROR;
+    }
+
+    /* Check if we should use the shim */
+    if (getenv("PKCS11_SHIM_URL")) {
+        ret = shim_module_init(mctx);
+        if (ret != CKR_OK) return ret;
+
+        args.flags = CKF_OS_LOCKING_OK;
+        ret = mctx->interface->Initialize(&args);
+        if (ret != CKR_OK) return ret;
+        
+        /* Initialize slots for shim */
+        ret = p11prov_init_slots(mctx->provctx, &slots);
+        if (ret) return ret;
+
+        p11prov_ctx_set_slots(mctx->provctx, slots);
+        return CKR_OK;
     }
 
     ret = MUTEX_LOCK(mctx);
