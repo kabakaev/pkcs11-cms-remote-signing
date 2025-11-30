@@ -3,7 +3,7 @@
 
 # pkcs11-provider repurposed for remote CMS signing
 
-The source code of original pkcs11-provider is changed to support CMS signing with private key on a remote API.
+The source code of original pkcs11-provider is changed to support [CMS signing with private key on a remote API](./cms_remote_signature.md).
 
 Namely, the modified version replaces the "PKCS#11 Driver" part with a Shim, which instead of talking to a local hardware driver, talks to a Go REST API. This allows openssl to think it's using a local token, while actually performing ECDSA signature operation remotely.
 
